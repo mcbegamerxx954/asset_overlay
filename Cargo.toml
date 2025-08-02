@@ -1,0 +1,10 @@
+[package]
+name = "asset_overlay"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libc = "0.2.174"
+ndk-sys = "0.6.0"
+region = "3.0.2"
+stack_dst = "0.8.1"
