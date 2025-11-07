@@ -1,11 +1,8 @@
 use libc::{off_t, off64_t};
 use ndk_sys::{AAsset, AAssetManager};
 
-use ndk::asset::{Asset, AssetManager};
-use smallbox::{
-    SmallBox,
-    space::{S4, S8},
-};
+use ndk::asset::AssetManager;
+
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -19,9 +16,9 @@ use std::{
 pub type SyncFile = dyn CustomFile + Sync + Send;
 pub type SyncProvider = dyn FileProvider + Sync + Send;
 pub trait FileProvider {
-    fn get_file(&mut self, name: &Path, asset: &AssetManager) -> Option<SmallBox<SyncFile, S4>>;
+    fn get_file(&mut self, name: &Path, asset: &AssetManager) -> Option<Box<SyncFile>>;
 }
-pub static FILE_PROVIDERS: LazyLock<Mutex<Vec<SmallBox<SyncProvider, S8>>>> =
+pub static FILE_PROVIDERS: LazyLock<Mutex<Vec<Box<SyncProvider>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 // This makes me feel wrong... but all we will do is compare the pointer
 // and the struct will be used in a mutex so i guess this is safe??
@@ -56,14 +53,14 @@ impl<T: Read + Seek> CustomFile for T {
     }
 }
 // The assets we have registrered to remplace data about
-static WANTED_ASSETS: LazyLock<Mutex<HashMap<AAssetPtr, SmallBox<SyncFile, S4>>>> =
+static WANTED_ASSETS: LazyLock<Mutex<HashMap<AAssetPtr, Box<SyncFile>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub(crate) unsafe fn open(
     man: *mut AAssetManager,
     fname: *const libc::c_char,
     mode: libc::c_int,
-) -> *mut ndk_sys::AAsset {
+) -> *mut ndk_sys::AAsset { unsafe {
     // This is where ub can happen, but we are merely a hook.
     let aasset = unsafe { ndk_sys::AAssetManager_open(man, fname, mode) };
     let c_str = unsafe { CStr::from_ptr(fname) };
@@ -80,7 +77,7 @@ pub(crate) unsafe fn open(
         }
     }
     return aasset;
-}
+}}
 
 /// Join paths without allocating if possible, or
 /// if the joined path does not fit the buffer then just
@@ -202,9 +199,8 @@ pub(crate) unsafe fn rem64(aasset: *mut AAsset) -> off64_t {
 pub(crate) unsafe fn close(aasset: *mut AAsset) {
     unsafe {
         let mut wanted_assets = WANTED_ASSETS.lock().unwrap();
-        if wanted_assets.remove(&AAssetPtr(aasset)).is_none() {
-            ndk_sys::AAsset_close(aasset);
-        }
+        wanted_assets.remove(&AAssetPtr(aasset));
+        ndk_sys::AAsset_close(aasset);
     }
 }
 
@@ -264,7 +260,7 @@ pub(crate) unsafe fn is_alloc(aasset: *mut AAsset) -> libc::c_int {
     }
 }
 
-fn seek_facade(offset: i64, whence: libc::c_int, fil: &mut SmallBox<SyncFile, S4>) -> i64 {
+fn seek_facade(offset: i64, whence: libc::c_int, fil: &mut Box<SyncFile>) -> i64 {
     let offset = match whence {
         libc::SEEK_SET => {
             //Lets check this so we dont mess up

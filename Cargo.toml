@@ -5,9 +5,10 @@ edition = "2024"
 
 [dependencies]
 libc = "0.2.174"
+modutils = { version = "0.1.0", git = "https://github.com/mcbegamerxx954/modutils" }
 ndk = "0.9.0"
 ndk-sys = "0.6.0"
 plt-rs = "0.3.1"
 region = "3.0.2"
-smallbox = "0.8.8"
+# smallbox = "0.8.8"
 # stack_dst = "0.8.1"
