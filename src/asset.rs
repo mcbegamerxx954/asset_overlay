@@ -2,38 +2,35 @@
 #![allow(static_mut_refs)]
 #![allow(non_snake_case)]
 use libc::{off_t, off64_t};
-use ndk_sys::{AAsset, AAssetManager};
-
 use ndk::asset::AssetManager;
-
+use ndk_sys::{AAsset, AAssetManager};
 use std::{
-    borrow::Cow,
     cell::UnsafeCell,
-    ffi::{CStr, CString, OsStr},
-    io::{self, Read, Seek, SeekFrom, Write},
+    ffi::{CStr, OsStr},
+    io::{self, Read, Seek, SeekFrom},
     os::unix::ffi::OsStrExt,
-    path::{Path, PathBuf},
+    path::Path,
     ptr::{self, NonNull},
     sync::{LazyLock, Mutex},
 };
+
 pub type SyncFile = dyn CustomFile + Sync + Send;
 pub type SyncProvider = dyn FileProvider + Sync + Send;
+
 pub trait FileProvider {
     fn get_file(&mut self, name: &Path, man: &AssetManager) -> Option<Box<SyncFile>>;
 }
+
 pub static FILE_PROVIDERS: LazyLock<Mutex<Vec<Box<SyncProvider>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
-// This makes me feel wrong... but all we will do is compare the pointer
-// and the struct will be used in a mutex so i guess this is safe??
-#[derive(PartialEq, Eq, Hash)]
-struct AAssetPtr(*const ndk_sys::AAsset);
-unsafe impl Send for AAssetPtr {}
+
 pub trait CustomFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>;
     fn seek(&mut self, seek: SeekFrom) -> io::Result<u64>;
     fn len(&mut self) -> io::Result<u64>;
     fn rem(&mut self) -> io::Result<u64>;
 }
+
 impl<T: Read + Seek> CustomFile for T {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.read(buf)
@@ -55,6 +52,7 @@ impl<T: Read + Seek> CustomFile for T {
         Ok(rem)
     }
 }
+
 // The assets we have registrered to remplace data about
 static mut WANTED_ASSETS: UnsafeCell<Vec<*mut Box<SyncFile>>> = UnsafeCell::new(Vec::new());
 
@@ -74,7 +72,7 @@ pub(crate) unsafe fn open(
     let mut providers = FILE_PROVIDERS.lock().unwrap();
     for provider in providers.iter_mut() {
         if let Some(file) = provider.get_file(c_path, &sus) {
-            let wanted = WANTED_ASSETS.get_mut();
+            let wanted = unsafe { WANTED_ASSETS.get_mut() };
             let extrabox = Box::new(file);
             let pointer = Box::into_raw(extrabox);
             wanted.push(pointer);
@@ -85,30 +83,6 @@ pub(crate) unsafe fn open(
     unsafe { ndk_sys::AAssetManager_open(man, fname, mode) }
 }
 
-/// Join paths without allocating if possible, or
-/// if the joined path does not fit the buffer then just
-/// allocate instead
-fn opt_path_join<'a>(bytes: &'a mut [u8; 128], paths: &[&Path]) -> Cow<'a, CStr> {
-    let total_len: usize = paths.iter().map(|p| p.as_os_str().len()).sum();
-    if total_len + 1 > 128 {
-        // panic!("fuck");
-        let mut pathbuf = PathBuf::new();
-        for path in paths {
-            pathbuf.push(path);
-        }
-        let cpath = CString::new(pathbuf.into_os_string().as_encoded_bytes()).unwrap();
-        return Cow::Owned(cpath);
-    }
-
-    let mut writer = bytes.as_mut_slice();
-    for path in paths {
-        let osstr = path.as_os_str().as_bytes();
-        writer.write(osstr).unwrap();
-    }
-    writer.write(&[0]).unwrap();
-    let guh = CStr::from_bytes_until_nul(bytes).unwrap();
-    Cow::Borrowed(guh)
-}
 macro_rules! aah {
     ((ptr: $ptr:ident, matched_file: $file:ident) $(pub unsafe fn $name:ident($($arg_name:ident : $arg_ty:ty),*) -> $ret_type:ty = $body:expr),*) => {
         $(pub unsafe fn $name($($arg_name:$arg_ty),*) -> $ret_type {
@@ -200,13 +174,18 @@ pub unsafe fn AAsset_isAllocated(aasset: *mut AAsset) -> libc::c_int = {
 
 pub(crate) unsafe fn close(aasset: *mut AAsset) {
     unsafe {
-        let mut wanted_assets = WANTED_ASSETS.get_mut();
+        let wanted_assets = WANTED_ASSETS.get_mut();
         match wanted_assets.iter().position(|p| *p == aasset.cast()) {
-            Some(yay) => wanted_assets.remove(yay),
+            Some(yay) => {
+                wanted_assets.remove(yay);
+                let boxed = aasset.cast::<Box<SyncFile>>();
+                // Idk if this works but it should be freeing the data once this function finishes
+                let _boxi = Box::from_raw(boxed);
+                // Just in case
+                drop(_boxi);
+            }
             None => return ndk_sys::AAsset_close(aasset),
         };
-        //        if wanted_assets.remove(pos);
-        //        ndk_sys::AAsset_close(aasset);
     }
 }
 fn seek_facade(offset: i64, whence: libc::c_int, fil: &mut Box<SyncFile>) -> i64 {
