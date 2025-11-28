@@ -28,18 +28,18 @@ pub fn register_provider(thing: Box<SyncProvider>) {
 pub fn hook_aaset(lib: &mut Module) {
     let asset_fn_list = cast_array! {
         "AAssetManager_open" -> asset::open,
-        "AAsset_read" -> asset::read,
+        "AAsset_read" -> asset::AAsset_read,
         "AAsset_close" -> asset::close,
-        "AAsset_seek" -> asset::seek,
-        "AAsset_seek64" -> asset::seek64,
-        "AAsset_getLength" -> asset::len,
-        "AAsset_getLength64" -> asset::len64,
-        "AAsset_getRemainingLength" -> asset::rem,
-        "AAsset_getRemainingLength64" -> asset::rem64,
-        "AAsset_openFileDescriptor" -> asset::fd_dummy,
-        "AAsset_openFileDescriptor64" -> asset::fd_dummy64,
-        "AAsset_getBuffer" -> asset::get_buffer,
-        "AAsset_isAllocated" -> asset::is_alloc,
+        "AAsset_seek" -> asset::AAsset_seek,
+        "AAsset_seek64" -> asset::AAsset_seek64,
+        "AAsset_getLength" -> asset::AAsset_getLength,
+        "AAsset_getLength64" -> asset::AAsset_getLength64,
+        "AAsset_getRemainingLength" -> asset::AAsset_getRemainingLength,
+        "AAsset_getRemainingLength64" -> asset::AAsset_getRemainingLength64,
+        "AAsset_openFileDescriptor" -> asset::AAsset_openFileDescriptor,
+        "AAsset_openFileDescriptor64" -> asset::AAsset_openFileDescriptor64,
+        "AAsset_getBuffer" -> asset::AAsset_getBuffer,
+        "AAsset_isAllocated" -> asset::AAsset_isAllocated,
     };
     for (name, hook) in asset_fn_list {
         lib.replace_lib_import(name, hook);
